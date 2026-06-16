@@ -50,10 +50,10 @@
 
     <script>
         const broker = "broker.hivemq.com";
-        const port = 8000; 
+        const port = 1883; 
         const topic_perintah = "rumah/perintah";
         const topic_status = "rumah/status";
-        const clientID = "WebVoice_" + Math.random().toString(16).substr(2, 8);
+        const clientID = "clientId-yEql0jxTIX" + Math.random().toString(16).substr(2, 8);
 
         const client = new Paho.MQTT.Client(broker, port, clientID);
 
