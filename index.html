@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Home Voice Control</title>
+    <!-- Paho MQTT Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121214; color: #ffffff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+        .card { background: #1e1e24; padding: 30px; border-radius: 24px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); text-align: center; width: 100%; max-width: 400px; border: 1px solid #2e2e38; }
+        h1 { font-size: 24px; margin-bottom: 10px; color: #00ffff; text-shadow: 0 0 10px rgba(0, 255, 255, 0.2); }
+        #status { font-size: 14px; color: #aaa; margin-bottom: 30px; padding: 8px; border-radius: 8px; background: #262630; }
+        
+        /* Tombol Mikrofon Bulat Modern */
+        .mic-btn { width: 120px; height: 120px; border-radius: 50%; background: linear-gradient(135deg, #007bff, #00ffff); border: none; cursor: pointer; margin: 20px auto; display: flex; align-items: center; justify-content: center; font-size: 40px; color: white; box-shadow: 0 0 20px rgba(0, 123, 255, 0.4); transition: all 0.3s ease; }
+        .mic-btn:active { transform: scale(0.95); box-shadow: 0 0 30px rgba(0, 255, 255, 0.6); }
+        .listening { animation: pulse 1.5s infinite; background: linear-gradient(135deg, #ff0055, #ff5500); box-shadow: 0 0 30px rgba(255, 0, 85, 0.6); }
+        
+        #HasilTeks { font-size: 22px; font-weight: 600; margin-top: 20px; min-height: 30px; color: #fff; }
+        
+        /* Panel Status dari Wemos */
+        .feedback-box { margin-top: 30px; padding: 15px; background: #262630; border-radius: 14px; border-left: 5px solid #00ff66; text-align: left; }
+        .feedback-title { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+        #wemos-reply { font-size: 16px; font-weight: bold; color: #00ff66; margin-top: 5px; }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 0, 85, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(255, 0, 85, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 0, 85, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Voice Controller</h1>
+        <div id="status">Mengubungkan ke Server IOT...</div>
+        
+        <button id="btn-bicara" class="mic-btn">🎤</button>
+        
+        <div id="HasilTeks">Tekan tombol & bicara</div>
+        
+        <div class="feedback-box">
+            <div class="feedback-title">Respon Wemos Terakhir:</div>
+            <div id="wemos-reply">Menunggu data Wemos...</div>
+        </div>
+    </div>
+
+    <script>
+        const broker = "broker.hivemq.com";
+        const port = 8000; 
+        const topic_perintah = "rumah/perintah";
+        const topic_status = "rumah/status";
+        const clientID = "WebVoice_" + Math.random().toString(16).substr(2, 8);
+
+        const client = new Paho.MQTT.Client(broker, port, clientID);
+
+        // Saat koneksi putus
+        client.onConnectionLost = function() {
+            document.getElementById("status").innerText = "⚠️ Koneksi Terputus! Reconnecting...";
+            document.getElementById("status").style.color = "#ff5500";
+            setTimeout(connectMQTT, 3000);
+        };
+
+        // Membaca feedback/laporan dari Wemos
+        client.onMessageArrived = function(message) {
+            document.getElementById("wemos-reply").innerText = "📡 " + message.payloadString;
+        };
+
+        function connectMQTT() {
+            client.connect({
+                onSuccess: function() {
+                    document.getElementById("status").innerText = "✅ Cloud Terhubung (Siap)";
+                    document.getElementById("status").style.color = "#00ff66";
+                    client.subscribe(topic_status); // Dengarkan laporan dari Wemos
+                },
+                onFailure: function() {
+                    document.getElementById("status").innerText = "❌ Gagal konek server.";
+                    document.getElementById("status").style.color = "#ff0055";
+                }
+            });
+        }
+        connectMQTT();
+
+        // Speech Recognition Setup
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Browser tidak mendukung Speech API. Gunakan Chrome!");
+        } else {
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'id-ID';
+            recognition.interimResults = false;
+
+            const btnBicara = document.getElementById("btn-bicara");
+
+            btnBicara.addEventListener("click", () => {
+                recognition.start();
+                btnBicara.classList.add("listening");
+                document.getElementById("HasilTeks").innerText = "Mendengarkan...";
+            });
+
+            recognition.onresult = function(event) {
+                btnBicara.classList.remove("listening");
+                let hasilSuara = event.results[0][0].transcript.trim().toUpperCase();
+                document.getElementById("HasilTeks").innerText = `"${hasilSuara}"`;
+
+                // Kirim ke MQTT
+                if (["NYALAKAN", "MATIKAN", "STATER", "STOP"].includes(hasilSuara)) {
+                    const message = new Paho.MQTT.Message(hasilSuara);
+                    message.destinationName = topic_perintah;
+                    client.send(message);
+                } else {
+                    document.getElementById("HasilTeks").innerText += " ⚠️ (Kata tidak cocok)";
+                }
+            };
+
+            recognition.onerror = function() {
+                btnBicara.classList.remove("listening");
+                document.getElementById("HasilTeks").innerText = "Gagal mendengarkan, coba lagi.";
+            };
+        }
+    </script>
+</body>
+</html>
