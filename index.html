@@ -49,12 +49,13 @@
 
     <script>
         // === KONFIGURASI BARU SESUAI BROKER ANDA ===
-        const broker = "mqtt-dashboard.com";
+// === PERBAIKAN KONFIGURASI WEBSOCKET SECURE ===
+        const broker = "broker.hivemq.com"; // Menggunakan alias host WebSocket global yang paling stabil
         const port = 8884; // Port Secure WebSocket (WSS)
         const topic_perintah = "rumah/perintah";
         const topic_status = "rumah/status";
         
-        // Menggunakan format ClientID unik agar tidak berbenturan dengan perangkat lain
+        // Buat ClientID acak agar tidak saling memutus koneksi
         const clientID = "WebVoice_" + Math.random().toString(16).substr(2, 8);
 
         const client = new Paho.MQTT.Client(broker, port, clientID);
@@ -73,19 +74,49 @@
 
         function connectMQTT() {
             client.connect({
-                useSSL: true, // Wajib TRUE karena menggunakan port 8884 (WSS)
+                useSSL: true, // Wajib TRUE karena diakses via HTTPS GitHub
+                timeout: 3,
+                keepAliveInterval: 60,
                 onSuccess: function() {
                     document.getElementById("status").innerText = "✅ Cloud Terhubung (Siap)";
                     document.getElementById("status").style.color = "#00ff66";
                     client.subscribe(topic_status); // Dengarkan laporan dari Wemos
                 },
                 onFailure: function(error) {
-                    document.getElementById("status").innerText = "❌ Gagal konek server.";
+                    document.getElementById("status").innerText = "❌ Gagal konek server. Mengganti jalur...";
                     document.getElementById("status").style.color = "#ff0055";
                     console.log("MQTT Connect Error: ", error);
+                    
+                    // JIKA GAGAL: Coba jalur alternatif otomatis ke broker alternatif
+                    setTimeout(tryAlternativeBroker, 2000);
                 }
             });
         }
+
+        function tryAlternativeBroker() {
+            // Jika broker.hivemq.com port 8884 diblokir, coba gunakan host websocket mqtt-dashboard
+            const alternativeClient = new Paho.MQTT.Client("mqtt-dashboard.com", 8884, clientID);
+            // Salin ulang handler fungsi
+            alternativeClient.onConnectionLost = client.onConnectionLost;
+            alternativeClient.onMessageArrived = client.onMessageArrived;
+            
+            alternativeClient.connect({
+                useSSL: true,
+                onSuccess: function() {
+                    document.getElementById("status").innerText = "✅ Cloud Terhubung via Jalur Alt";
+                    document.getElementById("status").style.color = "#00ff66";
+                    alternativeClient.subscribe(topic_status);
+                    // Tukar objek client utama dengan yang alternatif
+                    window.client = alternativeClient;
+                },
+                onFailure: function(err) {
+                    document.getElementById("status").innerText = "❌ Semua jalur WebSocket diblokir.";
+                    console.log("Alternative Connect Error: ", err);
+                }
+            });
+        }
+
+        // Jalankan koneksi utama saat pertama kali web dibuka
         connectMQTT();
 
         // Speech Recognition Setup
